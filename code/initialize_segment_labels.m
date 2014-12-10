@@ -34,17 +34,17 @@ L_init = zeros(size(L));
 % dist_map{k} is the distance map centered around the k-th nucleus
 % prob_map{k} is the probability map, assumed to follow Gaussian
 bw = cell(1,num_cells);
-dist_map = cell(1,num_cells);
-prob_map = cell(1,num_cells);
+dist_maps = cell(1,num_cells);
+prob_maps = cell(1,num_cells);
 for icell = 1:num_cells
     bw{icell} = (L==icell);
     L_init(bw{icell}) = icell; % segment label inside the cell nucleus
-    dist_map{icell} = bwdist(bw{icell}, 'euclidean');
-    bw_partial = dist_map{icell} < 60 & dist_map{icell} > 0;
+    dist_maps{icell} = bwdist(bw{icell}, 'euclidean');
+    bw_partial = dist_maps{icell} < 60 & dist_maps{icell} > 0;
     
     gaussian_kernel = @(r,sig) exp(-r.^2/2/sig^2);
-    prob_map{icell} = gaussian_kernel(dist_map{icell},25) .* bw_partial;
-    prob_map{icell} = prob_map{icell} / sum(sum(prob_map{icell}));
+    prob_maps{icell} = gaussian_kernel(dist_maps{icell},25) .* bw_partial;
+    prob_maps{icell} = prob_maps{icell} / sum(sum(prob_maps{icell}));
 end
 
 
@@ -66,7 +66,7 @@ for s = 1:num_superpixels
     
     prob_cells = zeros(1,num_cells);
     for i = 1:num_cells
-        prob_cells(i) = sum(sum(prob_map{i}(labels==s)));
+        prob_cells(i) = sum(sum(prob_maps{i}(labels==s)));
     end
     
     % find the highest probability cell index and fill in the segment

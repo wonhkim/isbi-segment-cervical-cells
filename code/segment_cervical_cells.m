@@ -1,5 +1,18 @@
 function segment_cervical_cells(test_id)
 
+%
+% @description
+% segment cytoplasm
+%
+% @input
+% test_id
+% nuclei_labels (result from nuclei segmentation)
+%
+% @contact
+% Wonhui Kim (wonhui@stanford.edu)
+%
+
+
 dim = 512;
 
 %% load test data

@@ -1,23 +1,21 @@
 function [y_list] = segmentation_proposals(compute_score, labels_init, nuclei, ucm, ucm_thres)
 
+%
 % @description
-%   generate segmentation proposals around the initial segment labels
+% generate segmentation proposals around the initial segment labels
 %
 % @input
-%   labels_init : initial segmentation map
-%   nuclei : segmentation map of all nuclei
-%   ucm : globalPb contour map result
-%   ucm_thres : threshold of ucm to get the superpixel map
+% labels_init : initial segmentation map
+% nuclei : segmentation map of all nuclei
+% ucm : globalPb contour map result
+% ucm_thres : threshold of ucm to get the superpixel map
 %
 % @output
-%   y_list : all the label combinations to search
-%
-% @author
-%   Wonhui Kim
+% y_list : all the label combinations to search
 %
 % @contact
-%   wonhui@stanford.edu
-
+% Wonhui Kim (wonhui@stanford.edu)
+%
 
 dim = 512;
 labels_filled = fill_segments(labels_init, 5);
@@ -35,15 +33,24 @@ for icell = 1:num_cells
 end
 
 
-%% find difference between coarse superpixel map and the finer one
-% k = [0.1 0.15];
-k = 0.15;
-[labels_k] = initialize_segment_labels(nuclei, ucm, k, num_cells);
-labels_k = fill_segments(labels_k, 5);
+% find difference between coarse superpixel map and the finer one
+k = 0.1; % k = [0.1 0.15];
+% [labels_k] = initialize_segment_labels(nuclei, ucm, k, num_cells);
+labels_k = bwlabel(ucm<=k); % figure(3); imagesc(LL)
+
+%labels_k = fill_segments(labels_k, 5);
 superpixel_map_coarse = bwlabel(ucm <= k);
 num_superpixels_coarse = max(max(superpixel_map_coarse));
 
-idx = find(labels_k==0 & labels_filled~=0);
+max_cnt = 0;
+for i = 0:max(max(labels_k))
+    cnt = sum(sum(labels_k==i));
+    if cnt > max_cnt
+        max_cnt = cnt;
+        background_idx = i;
+    end
+end
+idx = find(labels_k==background_idx & labels_filled~=0);
 superpixel_labels = unique(superpixel_map(idx));
 
 
@@ -55,17 +62,42 @@ disp(score_init);
 opt_score = -Inf;
 opt_y = labels_init;
 % for iter = 1:100
-    % cell boundary around the background
-for k = ceil(length(superpixel_labels)/2):ceil(length(superpixel_labels)/2)% ceil(length(superpixel_labels)/4):length(superpixel_labels) % randi([3,length(superpixel_labels)],1);
-    for iter = 1:100
+% cell boundary around the background
+
+opt_score = -Inf;
+y_ = labels_filled;
+opt_y = y_;
+for k = 1:length(superpixel_labels)
+    
+    s = superpixel_labels(k);
+    y_(superpixel_map==s) = 0;
+    % y_ = connect_labels(y_, superpixel_map);
+    y_ = fill_segments(y_,2);
+    score = compute_score(y_(:));
+    if score > opt_score
+        opt_score = score;
+        opt_y = y_;
+        figure(1); imagesc(opt_y); title(opt_score);
+    else
+        y_ = opt_y;
+    end
+    figure(1); imagesc(opt_y); title(opt_score);
+end
+
+% background pixels
+labels_filled = opt_y;
+for k = ceil(length(superpixel_labels)/4):5:ceil(length(superpixel_labels)/2)% ceil(length(superpixel_labels)/4):length(superpixel_labels) % randi([3,length(superpixel_labels)],1);
+    for iter = 1:10
         y_ = labels_filled;
         for j = 1:k
-            i = randi([2,length(superpixel_labels)],1);
+            i = randi([1,length(superpixel_labels)],1);
             s = superpixel_labels(i);
 
             y_(superpixel_map==s) = 0;
-
+            % y_ = connect_labels(y_, superpixel_map);
+            y_ = fill_segments(y_, 2);
             score = compute_score(y_(:));
+            
             if score > opt_score
                 opt_score = score;
                 opt_y = y_;
@@ -76,8 +108,8 @@ for k = ceil(length(superpixel_labels)/2):ceil(length(superpixel_labels)/2)% cei
     end
 end
 
-%% find all superpixels which are at the inter-cell boundaries
 
+%% find all superpixels which are at the inter-cell boundaries
 bdry_superpixels_cells = []; % boundary with other cells
 adjacent_cells = [];
 idx = unique(superpixel_map(opt_y>0));
@@ -102,7 +134,7 @@ for i = 1:num_superpixels
     center = sub2ind([dim,dim], round((x0+x1)/2), round((y0+y1)/2)); % bbox center (~ superpixel center)
     [center_sub(1),center_sub(2)] = ind2sub([dim dim],center);
     
-    del = 2; x0=x0-del; x1=x1+del; y0=y0-del; y1=y1+del;
+    del = 1; x0=x0-del; x1=x1+del; y0=y0-del; y1=y1+del;
     curr_label = labels_filled(center);
     bbox_region = labels_filled(x0:x1,y0:y1);
     
@@ -135,13 +167,16 @@ end
 for k = ceil(length(bdry_superpixels_cells)/4):length(bdry_superpixels_cells)
     % cell boundary around the background
     % k = randi([3,length(bdry_superpixels_cells)],1);
-    for iter = 1:100
+    for iter = 1:10
         y_ = opt_y;
         for j = 1:k
             i = randi([2,length(bdry_superpixels_cells)],1);
             s = bdry_superpixels_cells(i);
  
             y_(superpixel_map==s) = adjacent_cells(i);
+            for i = 1:num_cells
+                y_(nuclei==i) = i;
+            end
             y_ = connect_labels(y_, superpixel_map);
             y_ = fill_segments(y_,2);
 
