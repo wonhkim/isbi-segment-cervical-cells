@@ -51,10 +51,10 @@ for i = 1:max_label
             
             % change labels of all superpixels near the path connecting the
             % two centers - center_i and center_j
-            xmin = min(center_i(1), center_j(1));
-            xmax = max(center_i(1), center_j(1));
-            ymin = min(center_i(2), center_j(2));
-            ymax = max(center_i(2), center_j(2));
+            xmin = max(1,min(center_i(1), center_j(1)));
+            xmax = min(dim,max(center_i(1), center_j(1)));
+            ymin = max(1,min(center_i(2), center_j(2)));
+            ymax = min(dim,max(center_i(2), center_j(2)));
             
             if xmin ~= xmax
                 a = (ymax-ymin)/(xmax-xmin); % slope
@@ -62,7 +62,7 @@ for i = 1:max_label
                 % y = slope*x + b => center(2) = slope*center(1) + b
             
                 for x = xmin:xmax
-                    y = round(a*x + b);
+                    y = max(1,min(dim,round(a*x + b)));
                     s = superpixel_map(x,y);
                     if sum(sum(superpixel_map==s)) > 500
                         continue;

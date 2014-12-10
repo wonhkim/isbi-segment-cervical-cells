@@ -1,7 +1,7 @@
 function labels = fill_segments(labels, iter)
 
 dim = 512;
-num_segments = max(max(labels));
+num_segments = double(max(max(labels)));
 
 for k = 1:iter % repeat many times
     
@@ -18,16 +18,16 @@ for k = 1:iter % repeat many times
             left = get_pixel_left(curr,dim);
             right = get_pixel_right(curr,dim);
             
-            if labels(up)==0 && labels(get_pixel_up(up,dim))==i
+            if labels(up)==0 && (labels(get_pixel_up(up,dim))==i || labels(get_pixel_up(get_pixel_up(up,dim),dim))==i)
                 labels(up) = i;
             end
-            if labels(down)==0 && labels(get_pixel_down(down,dim))==i
+            if labels(down)==0 && (labels(get_pixel_down(down,dim))==i || labels(get_pixel_down(get_pixel_down(down,dim),dim))==i)
                 labels(down) = i;
             end
-            if labels(left)==0 && labels(get_pixel_left(left,dim))==i
+            if labels(left)==0 && (labels(get_pixel_left(left,dim))==i || labels(get_pixel_left(get_pixel_left(left,dim),dim))==i)
                 labels(left) = i;
             end
-            if labels(right)==0 && labels(get_pixel_right(right,dim))==i
+            if labels(right)==0 && (labels(get_pixel_right(right,dim))==i || labels(get_pixel_right(get_pixel_right(right,dim),dim))==i)
                 labels(right) = i;
             end
         end
