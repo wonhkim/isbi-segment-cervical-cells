@@ -1,4 +1,9 @@
-function my_svm_struct_learn
+% ? cell ??? ??? stability (energy)
+
+% pairwise cells
+
+
+function my_svm_struct_learn_ver2
 
 randn('state',0);
 rand('state',0);
@@ -22,59 +27,109 @@ GT = load('isbi_train_GT');
 GT_nuclei = GT.train_Nuclei;
 
 
+cnt = 0;
 for i = 1:num_trains
     
     num_cells = GT.CellNum(i);
     
-    patterns{i} = double(Images{i}(:)); % vectorize (columnize)
-    labels{i} = double(zeros(dim));
-    nuclei{i} = double(zeros(dim));
+    %% find a mapping between all cytoplasms and all nuclei
+    % convert binary nuclei map into multi-label nuclei map
+    labels_nuclei = bwlabel(GT.train_Nuclei{i},8);
+    assert(length(unique(labels_nuclei))-1 == num_cells);
+    % cytoplasm2nucleus(i): the nucleus label from labels_nuclei of i-th cell
+    cytoplasm2nucleus = zeros(num_cells,1);
     
-    % assign labels to each pixel - distinct labels for each individual cell
     for j = 1:num_cells
-        labels{i}(GT.train_Cytoplasm{i}{j}) = j;
-    end
-    
-    % assign labels to each pixel - intersection of different cells
-    for j = 1:num_cells
-        for k = j+1:num_cells
-            labels{i}(GT.train_Cytoplasm{i}{j} & GT.train_Cytoplasm{i}{k}) = (j+k)/2;
+        % binary nuclei map inside the i-th cell
+        bw_nuclei_in_cell = GT.train_Nuclei{i} & GT.train_Cytoplasm{i}{j};
+        % query the list of corresponding labels from labels_nuclei
+        idx = unique(labels_nuclei(bw_nuclei_in_cell));
+        if length(idx) == 1
+            cytoplasm2nucleus(j) = idx;
+            continue;
+        end
+        k = 1;
+        while length(idx)>1 && k<=length(idx)
+            if sum(sum(labels_nuclei==idx(k))) ~= sum(sum(bw_nuclei_in_cell(labels_nuclei==idx(k))))
+                idx(k) = [];
+            else
+                k = k + 1;
+            end
+        end
+        if length(idx) == 1
+            cytoplasm2nucleus(j) = idx;
+            continue;
         end
     end
-    labels{i} = labels{i}(:); % vectorize (columnize)
-
-    % ucm
-    ucms{i} = load(sprintf('train%02d_ucm', i));
-    ucms{i} = ucms{i}.ucm;
     
-    % assign labels to each cell nucleus
-    % nuclei{i} = double(GT_nuclei{i});
+    cell_idx = find(cytoplasm2nucleus==0);
+    nucleus_label = setdiff(1:num_cells,cytoplasm2nucleus);
+    assert(length(cell_idx)==length(nucleus_label));
+    if length(cell_idx) == 1
+        cytoplasm2nucleus(cell_idx) = nucleus_label;
+    elseif length(cell_idx) > 1
+        dist_maps = cell(1,length(nucleus_label));
+        for j = 1:length(nucleus_label)
+            dist_maps{j} = bwdist(labels_nuclei==nucleus_label(j));
+        end
+        for k = 1:length(cell_idx)
+            clear idx
+            [idx(:,1),idx(:,2)] = find(GT.train_Cytoplasm{i}{cell_idx(k)}==1);
+            center = round(mean(idx,1));
+            min_d = Inf;
+            for j = 1:length(nucleus_label)
+                tmp_d = dist_maps{j}(center(1),center(2));
+                if tmp_d < min_d
+                    min_d = tmp_d;
+                    cytoplasm2nucleus(cell_idx(k)) = nucleus_label(j);
+                end
+            end
+        end
+    end
+
+    %%
+    obj = load(sprintf('train%02d_ucm', i));
+    
     for j = 1:num_cells
-        nuclei{i}(GT.train_Nuclei{i} & GT.train_Cytoplasm{i}{j}) = j;
-    end
-    
-end
+        cnt = cnt + 1;
+        
+        patterns{cnt} = double(Images{i});
 
-
-for id = 1:num_trains
-    % extract binary map for each nucleus
-    num_cells = GT.CellNum(id);
-    bw = cell(1,num_cells);
-    dist_map = cell(1,num_cells);
-    prob_map = cell(1,num_cells);
-    prob_maps{id} = double(zeros(dim));
-    for icell = 1:num_cells
-        bw{icell} = GT.train_Cytoplasm{id}{icell} & GT_nuclei{id}; % binary nucleus
-        L_new(bw{icell}) = icell; % segment label inside the cell nucleus
-        dist_map{icell} = bwdist(bw{icell}, 'euclidean');
-        bw_partial = dist_map{icell} < 60 & dist_map{icell} > 0;
-
+        
+        labels{cnt} = GT.train_Cytoplasm{i}{j};
+        
+        nuclei{cnt} = labels_nuclei==cytoplasm2nucleus(j);
+        ucms{cnt} = obj.ucm;
+        
+        dist_maps{cnt} = bwdist(nuclei{cnt}, 'euclidean');
+        bw = dist_maps{cnt} < 60 & dist_maps{cnt} > 0;
+        
         gaussian_kernel = @(r,sig) exp(-r.^2/2/sig^2);
-        prob_map{icell} = gaussian_kernel(dist_map{icell},30) .* bw_partial;
-        prob_map{icell} = prob_map{icell} / sum(sum(prob_map{icell}));
-        prob_maps{id} = prob_maps{id} + prob_map{icell};
+        prob_maps{cnt} = gaussian_kernel(dist_maps{cnt},25) .* bw;
+        prob_maps{cnt} = prob_maps{cnt} / sum(sum(prob_maps{cnt}));
+        
     end
 end
+
+% for id = 1:num_trains
+%     % extract binary map for each nucleus
+%     num_cells = GT.CellNum(id);
+%     bw = cell(1,num_cells);
+%     dist_map = cell(1,num_cells);
+%     prob_map = cell(1,num_cells);
+%     prob_maps{id} = double(zeros(dim));
+%     for icell = 1:num_cells
+%         bw{icell} = GT.train_Cytoplasm{id}{icell} & GT_nuclei{id}; % binary nucleus
+%         L_new(bw{icell}) = icell; % segment label inside the cell nucleus
+%         dist_map{icell} = bwdist(bw{icell}, 'euclidean');
+%         bw_partial = dist_map{icell} < 60 & dist_map{icell} > 0;
+% 
+%         gaussian_kernel = @(r,sig) exp(-r.^2/2/sig^2);
+%         prob_map{icell} = gaussian_kernel(dist_map{icell},30) .* bw_partial;
+%         prob_map{icell} = prob_map{icell} / sum(sum(prob_map{icell}));
+%         prob_maps{id} = prob_maps{id} + prob_map{icell};
+%     end
+% end
 
 % ------------------------------------------------------------------
 %                                                    Run SVM struct
@@ -97,6 +152,8 @@ parm.verbose = 1 ;
 % second input argument is structure learning parameters
 model = svm_struct_learn(' -c 1.0 -o 1 -v 1 ', parm);
 w = model.w ;
+dbstop if error
+save('result/ssvm-c_1-o_1-v_1-ver2.mat', 'model','-v7.3');
 
 % ------------------------------------------------------------------
 %                                                              Plots
@@ -122,44 +179,38 @@ end
 % ------------------------------------------------------------------
 
 function delta = lossCB(param, y, ybar)
-delta = sum(y ~= ybar); % the number of pixels having different labels
+
+delta = sum(y(:) ~= ybar(:)); % the number of pixels having different labels
 if param.verbose
-    fprintf('In lossCB; loss is = %d\n', delta) ;
+    fprintf('In lossCB: loss is = %d\n', delta) ;
 end
 end
 
 function psi = featureCB(param, x, y, prob_map, ucm, nuclei)
+
+
+cytoplasm = (y & ~nuclei);
 psi = zeros(3,1);
 
-max_label = floor(max(y));
+% maximize the probability to be involved in the cell
+psi(1) = psi(1) + sum(sum(prob_map(cytoplasm)));
 
-for i = 1:max_label
-    
-    idx_cell = unique([find(floor(y)==i); find(ceil(y)==i)]); % i-th cell region
-    idx_nucleus = unique(find(nuclei==i));
-    idx_cytoplasm = [];
-    for j = 1:length(idx_cell)
-        if isempty(find(idx_nucleus == idx_cell(j)))
-            idx_cytoplasm = [idx_cytoplasm; idx_cell(j)];
-        end
-    end
-    
-    % psi(1)
-    psi(1) = psi(1) + sum(prob_map(idx_cell));
-    
-    % psi(2)
-    psi(2) = psi(2) - var(x(idx_cytoplasm));
-    
-    % psi(3)
-    psi(3) = psi(3) - sum(ucm(idx_cell))/length(idx_cell);
-    
-    
-end
-psi = psi / max_label;
+% minimize intensity variations inside the cell region
+tmp = x(cytoplasm);
+psi(2) = psi(2) - var(tmp(:));
+
+% minimize the sum of ucm values
+psi(3) = psi(3) - sum(sum(ucm(cytoplasm))) / sum(sum(cytoplasm));
+
+% % intensity histogram
+% xcenters = 50:30:230;
+% h = hist(x(cytoplasm), xcenters) / sum(cytoplasm);
+% psi = [psi; h'];
+
 psi = sparse(psi);
 
 if param.verbose
-    fprintf('In featureCB; psi(x,y)\n');
+    fprintf('In featureCB: psi(x,y)\n');
 end
 end
 
@@ -169,11 +220,12 @@ function yhat = constraintCB(param, model, x, y, prob_map, ucm, nuclei)
 % if dot(y*x, model.w) > 1, yhat = y ; else yhat = - y ; end
 
 % yhat: ?? score max? ??? GT ?? label y
-yhat = [];
-y_list = generate_yhat_rand(y, ucm, nuclei);
+% yhat = [];
+y_list = generate_y_proposals(y, ucm, nuclei);
 max_score = -Inf;
-for i = 1:size(y_list,2)
-    y_ = y_list(:,i);
+for i = 1:length(y_list) % size(y_list,2)
+    % y_ = y_list(:,i);
+    y_ = y_list{i};
     score = dot(featureCB(param,x,y_,prob_map,ucm,nuclei), model.w);
     if score > max_score
         max_score = score;
@@ -182,7 +234,7 @@ for i = 1:size(y_list,2)
 end
 
 if param.verbose
-    fprintf('In constraintCB; \n');
+    fprintf('In constraintCB: [%.4f, %.4f, %.4f]\n', model.w);
 %     fprintf('yhat = violslack([%8.3f,%8.3f], [%8.3f,%8.3f], %3d) = %3d\n', ...
 %         model.w, x, y, yhat) ;
 end
@@ -190,6 +242,78 @@ end
 
 
 
+function y_list = generate_y_proposals(y, ucm, nuclei)
+
+% y = y(:);
+
+dim = 512;
+cytoplasm =  (y & ~nuclei); %(y & ~nuclei(:));
+
+ucm_thres = 0.08;
+superpixel_map = bwlabel(ucm<=ucm_thres, 8);
+
+y_list = cell(0); % [];
+
+
+%% find superpixels near the boundary
+
+clear idx
+[idx(:,1),idx(:,2)] = find(y==1); % ind2sub([dim,dim], find(y==1));
+
+del = 10;
+x0 = max(1,min(idx(:,1))-del); x1 = min(dim,max(idx(:,1))+del); w = x1-x0;
+y0 = max(1,min(idx(:,2))-del); y1 = min(dim,max(idx(:,2))+del); h = y1-y0;
+center = round([x0+x1, y0+y1]/2);
+bbox = zeros(dim);
+bbox(x0:x1,y0:y1) = 1;
+
+% 1) consider additional superpixels
+list_superpixels = unique( superpixel_map(bbox & ~cytoplasm) );
+for k = 1:10:length(list_superpixels)
+    y_ = y;
+    for i = 1:k
+        s = list_superpixels( randi([1,length(list_superpixels)],1) );
+        clear idx
+        y_(superpixel_map==s) = 1;
+        y_(nuclei) = 1;
+        y_ = fill_segments(y_,3);
+        
+%         if ~isequal(y,y_)
+%             y_list = [y_list, y_];
+%         end
+    end
+    if ~isequal(y,y_)
+        y_list = [y_list, y_];
+    end
+end
+
+% 2) remove superpixels
+x0 = min(center(1)-50, x0 + 3*del); x1 = max(center(1)+50, x1 - 3*del);
+y0 = min(center(2)-50, y0 + 3*del); y1 = max(center(2)+50, y1 - 3*del);
+bbox = zeros(dim);
+bbox(x0:x1,y0:y1) = 1;
+
+list_superpixels = unique( superpixel_map(~bbox & cytoplasm) );
+for k = 1:10:length(list_superpixels)
+    y_ = y;
+    for i = 1:k
+        s = list_superpixels( randi([1,length(list_superpixels)],1) );
+        clear idx
+        y_(superpixel_map==s & ~nuclei) = 0;
+        y_(nuclei) = 1;
+        y_ = fill_segments(y_,3);
+
+%         if ~isequal(y,y_)
+%             y_list = [y_list,y_];
+%         end
+    end
+    if ~isequal(y,y_)
+        y_list = [y_list, y_];
+    end
+end
+
+
+end
 
 function y_list = generate_yhat_rand(y, ucm, nuclei)
 
@@ -297,49 +421,5 @@ for idist = length(list_dist_thres):-1:1
         y_list = [y_list, y_];
     end
 end
-
-% for i = 1:num_cells-1
-%     
-%     i_overlap = i + 0.5; % overlap region label
-%     idx = find(y==i_overlap); % overlap region pixel linear indices
-%     
-%     % find all superpixels in the overlap region
-%     list_superpixel_labels_in_overlap_region = unique(labels(idx));
-%     list_superpixel_labels_to_change = ...
-%         find(randi(2,1,length(list_superpixel_labels_in_overlap_region))-1 == 1);
-%     y_ = y;
-%     y_(list_superpixel_labels_to_change) = i;
-%     
-%     % check whether score is max
-%     if score_ > score_max
-%         score_ = score_max;
-%         y_max = y_;
-%     end
-% end
-
-% "initialize" superpixel labels
-% - find the closest cell index for each superpixel
-% - if sum of probabilities inside the superpixel is zero => background
-% for s = 1:num_superpixels
-%     prob_cells = zeros(1,num_cells);
-%     for icell = 1:num_cells
-%         prob_cells(icell) = sum(sum(prob_map(L==s)));
-%     end
-%     
-%     % find the highest probability cell index and fill in the segment
-%     % label to the superpixel
-%     [max_prob,idx] = max(prob_cells);
-%     if max_prob < 1e-4 || sum(sum(L==s)) > 5000
-%         L_new(L==s) = 0; % background
-%     else
-%         L_new(L==s) = idx;
-%     end
-%     [~,idx] = find(superpixel2cell(s,:)==2); % nucleus
-%     if length(idx)==1 % ~isempty(idx)
-%         L_new(L==s) = idx;
-%     end
-%     
-%     figure(7); imagesc(L_new);
-% end
 
 end
